@@ -85,10 +85,7 @@
 
 #define ARM_PID_DEFAULT_CM3		0x0000B4C3
 #define ARM_PID_DEFAULT_CM4		0x0000B4C4
-#define MAX326XX_ID				0x0000004D
-
-#define WRITE32BIT				0
-#define WRITE128BIT				1
+#define MAX326XX_ID				0x0000004D    
 
 #define OPTIONS_128             0x01 /* Perform 128 bit flash writes */
 #define OPTIONS_ENC             0x02 /* Encrypt the flash contents */
@@ -97,7 +94,6 @@
 #define OPTIONS_INTER           0x10 /* Interleave the authentication and count values*/
 #define OPTIONS_RELATIVE_XOR    0x20 /* Only XOR the offset of the address when encrypting */    
 #define OPTIONS_KEYSIZE         0x40 /* Use a 256 bit KEY */    
-
 
 static int max32xxx_mass_erase(struct flash_bank *bank);
 
@@ -109,11 +105,9 @@ struct max32xxx_flash_bank {
 	unsigned int sector_size;
 	unsigned int clkdiv_value;
 	unsigned int int_state;
-	unsigned int burst_size_bits;
-	unsigned int enc_options;
+	unsigned int options;
 };
 
-/* see contib/loaders/flash/max32xxx/max32xxx.s for src */
 static const uint8_t write_code[] = {
   0x9b, 0x46, 0x51, 0xf8, 0x84, 0x3c, 0xa1, 0xf5, 0x82, 0x77, 0x02, 0x93, 0x13, 0xf0, 0x02, 0x03, 0x05, 0x93, 0x1e, 0xd0, 
   0x4f, 0xf0, 0x80, 0x43, 0x9c, 0x68, 0x64, 0x03, 0x5e, 0xbf, 0x9c, 0x68, 0x44, 0xf4, 0x80, 0x24, 0x9c, 0x60, 0x5c, 0x6a, 
@@ -162,15 +156,12 @@ static const uint8_t write_code[] = {
   0xff, 0x09, 0x3d, 0xe7, 0x4f, 0xf0, 0xff, 0x09, 0x60, 0xe7, 0x4f, 0xf0, 0xff, 0x09, 0x83, 0xe7, 0x5d, 0x44, 0x9f, 0xe7, 
 };
 
-/*	Config Command: flash bank name driver base size chip_width bus_width target [driver_option]
-	flash bank max32xxx <base> <size> 0 0 <target> <FLC base> <sector size> <clkdiv> [burst_bits]
- */
 FLASH_BANK_COMMAND_HANDLER(max32xxx_flash_bank_command)
 {
 	struct max32xxx_flash_bank *info;
 
-	if ((CMD_ARGC < 10) || (CMD_ARGC > 11)) {
-		LOG_ERROR("incorrect flash bank max32xxx configuration: <base> <size> 0 0 <target> <FLC base> <sector size> <clkdiv> <burst_bits> [enc_options]");
+	if ((CMD_ARGC < 10) || (CMD_ARGC > 10)) {
+		LOG_ERROR("incorrect flash bank max32xxx configuration: <base> <size> 0 0 <target> <FLC base> <sector size> <clkdiv> <options>");
 		return ERROR_FLASH_BANK_INVALID;
 	}
 
@@ -179,22 +170,7 @@ FLASH_BANK_COMMAND_HANDLER(max32xxx_flash_bank_command)
 	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[6], info->flc_base);
 	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[7], info->sector_size);
 	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[8], info->clkdiv_value);
-	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[9], info->burst_size_bits);
-
-	if ((info->burst_size_bits != 128) && (info->burst_size_bits != 32)) {
-		LOG_ERROR("Invalid burst size %d, must be 32 or 128", info->burst_size_bits);
-		return ERROR_FLASH_BANK_INVALID;
-	}
-
-	if(CMD_ARGC == 11) {
-		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[10], info->enc_options);
-	} else {
-		if(info->burst_size_bits == 128) {
-			info->enc_options = OPTIONS_128;
-		} else {
-			info->enc_options = 0x0;
-		}
-	}
+	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[9], info->options);
 
 	info->int_state = 0;
 	bank->driver_priv = info;
@@ -514,7 +490,7 @@ static int max32xxx_write_block(struct flash_bank *bank, const uint8_t *buffer,
 
 	/* mem_params for options */
 	init_mem_param(&mem_param[0], source->address + (source->size - 4 - 128), 4, PARAM_OUT);
-	buf_set_u32(mem_param[0].value, 0, 32, info->enc_options);
+	buf_set_u32(mem_param[0].value, 0, 32, info->options);
 
 	/* leave room for stack, 32-bit options and encryption buffer */
 	retval = target_run_flash_async_algorithm(target, buffer, wcount*4, 1, 1, mem_param,
@@ -556,7 +532,7 @@ static int max32xxx_write(struct flash_bank *bank, const uint8_t *buffer,
 	if (info->probed == 0)
 		return ERROR_FLASH_BANK_NOT_PROBED;
 
-	if (info->burst_size_bits == 32) {
+	if ((info->options & OPTIONS_128) == 0) {
 		if (offset & 0x3) {
 			LOG_ERROR("offset size must be 32-bit aligned");
 			return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
@@ -600,7 +576,7 @@ static int max32xxx_write(struct flash_bank *bank, const uint8_t *buffer,
 		}
 	}
 
-	if ((info->burst_size_bits == 32) && (remaining >= 4)) {
+	if (((info->options & OPTIONS_128) == 0) && (remaining >= 4)) {
 		/* write in 32-bit units*/
 		target_read_u32(target, info->flc_base + FLC_CN, &flash_cn);
 		flash_cn |= FLC_CN_32BIT;
@@ -629,7 +605,7 @@ static int max32xxx_write(struct flash_bank *bank, const uint8_t *buffer,
 		}
 	}
 
-	if ((info->burst_size_bits == 128) && (remaining >= 16)) {
+	if ((info->options & OPTIONS_128) && (remaining >= 16)) {
 		/* write in 128-bit units */
 		target_read_u32(target, info->flc_base + FLC_CN, &flash_cn);
 		flash_cn &= ~(FLC_CN_32BIT);
@@ -662,7 +638,7 @@ static int max32xxx_write(struct flash_bank *bank, const uint8_t *buffer,
 		}
 	}
 
-	if ((info->burst_size_bits == 32) && remaining > 0) {
+	if (((info->options & OPTIONS_128) == 0) && remaining > 0) {
 		/* write remaining bytes in a 32-bit unit */
 		target_read_u32(target, info->flc_base + FLC_CN, &flash_cn);
 		flash_cn |= FLC_CN_32BIT;
@@ -695,7 +671,7 @@ static int max32xxx_write(struct flash_bank *bank, const uint8_t *buffer,
 		}
 	}
 
-	if ((info->burst_size_bits == 128) && remaining > 0) {
+	if ((info->options & OPTIONS_128) && remaining > 0) {
 		/* write remaining bytes in a 128-bit unit */
 		if (target_read_u32(target, info->flc_base + FLC_CN, &flash_cn) != ERROR_OK) {
 			max32xxx_flash_op_post(bank);
