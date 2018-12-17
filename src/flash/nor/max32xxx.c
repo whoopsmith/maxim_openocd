@@ -391,7 +391,7 @@ static int max32xxx_write_block(struct flash_bank *bank, const uint8_t *buffer,
 	struct working_area *write_algorithm;
 	uint32_t address = bank->base + offset;
 	struct reg_param reg_params[5];
-	struct mem_param mem_param[1];
+	struct mem_param mem_param[2];
 	struct armv7m_algorithm armv7m_info;
 	int retval = ERROR_OK;
 	/* power of two, and multiple of word size */
@@ -445,12 +445,14 @@ static int max32xxx_write_block(struct flash_bank *bank, const uint8_t *buffer,
 	buf_set_u32(reg_params[4].value, 0, 32, source->address + source->size);
 
 	/* mem_params for options */
-	init_mem_param(&mem_param[0], source->address + (source->size - 4 - 128), 4, PARAM_OUT);
+	init_mem_param(&mem_param[0], source->address + (source->size - 8 - 128), 4, PARAM_OUT);
+	init_mem_param(&mem_param[1], source->address + (source->size - 4 - 128), 4, PARAM_OUT);
 	buf_set_u32(mem_param[0].value, 0, 32, info->options);
+	buf_set_u32(mem_param[1].value, 0, 32, info->flc_base);
 
 	/* leave room for stack, 32-bit options and encryption buffer */
-	retval = target_run_flash_async_algorithm(target, buffer, wcount*4, 1, 1, mem_param,
-		5, reg_params, source->address, (source->size - 4 - 256), write_algorithm->address, 0, &armv7m_info);
+	retval = target_run_flash_async_algorithm(target, buffer, wcount*4, 1, 2, mem_param,
+		5, reg_params, source->address, (source->size - 8 - 256), write_algorithm->address, 0, &armv7m_info);
 
 	if (retval == ERROR_FLASH_OPERATION_FAILED)
 		LOG_ERROR("error %d executing max32xxx flash write algorithm", retval);

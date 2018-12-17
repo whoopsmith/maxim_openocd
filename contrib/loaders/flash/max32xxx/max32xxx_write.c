@@ -53,8 +53,6 @@
 #define MXC_TPU                         ((mxc_tpu_regs_t*)MXC_BASE_TPU)
 #define MXC_BASE_GCR                    ((uint32_t)0x40000000UL)
 #define MXC_GCR                         ((mxc_gcr_regs_t*)MXC_BASE_GCR)
-#define MXC_BASE_FLC                    ((uint32_t)0x40029000UL)
-#define MXC_FLC                         ((mxc_flc_regs_t*)MXC_BASE_FLC)
 
 /******************************************************************************/
 #define getbyte(temp8)                                                          \
@@ -63,7 +61,7 @@
     temp8 = **read_ptr;                                                         \
                                                                                 \
     /* Increment and wrap around the read pointer */                            \
-    if ((*read_ptr + 1) >= (uint8_t*)(work_end - 4 - 256)) {                                          \
+    if ((*read_ptr + 1) >= (uint8_t*)(work_end - 8 - 256)) {                                          \
         *read_ptr = (uint8_t *)(work_start + 8);                                       \
     } else {                                                                    \
         (*read_ptr)++;                                                          \
@@ -82,16 +80,33 @@ void algo_write(uint8_t *work_start, uint8_t *work_end, uint32_t len, uint32_t a
 
     uint8_t * volatile *write_ptr = (uint8_t **)work_start;
     uint8_t * volatile *read_ptr = (uint8_t **)(work_start + 4);
-    uint32_t options = *(uint32_t *)(work_end - 4 - 128);
-    uint32_t *enc_buffer = (uint32_t *)(work_end - 4 - 256);
+    uint32_t *flc_base = (uint32_t *)(work_end - 4 - 128);
+    uint32_t *options = (uint32_t *)(work_end - 8 - 128);
+    uint32_t *enc_buffer = (uint32_t *)(work_end - 8 - 256);
     uint8_t temp8;
     uint32_t addr_save;
     int i;
+    mxc_flc_regs_t * MXC_FLC=(mxc_flc_regs_t*)*flc_base;
 
-    printf(" > w%08x r%08x o%08x b%08x b%08x\n", 
-        (uint32_t)write_ptr, (uint32_t)read_ptr, (uint32_t)options, (uint32_t)enc_buffer, (uint32_t)(enc_buffer + 256));
+    printf(" > w%08x r%08x o%08x f%08x b%08x b%08x\n", 
+        (uint32_t)write_ptr, (uint32_t)read_ptr, (uint32_t)*options, (uint32_t)*flc_base, (uint32_t)enc_buffer, (uint32_t)(enc_buffer + 256));
 
-    if(options & OPTIONS_ENC) {
+    if(*options & OPTIONS_ENC) {
+        /* Enable Memory Protection */
+        MXC_GCR->scon |= MXC_F_GCR_SCON_MEMPROT_EN;
+
+        /* Set the keysize */
+        if(*options & OPTIONS_KEYSIZE) {
+            MXC_GCR->scon |= MXC_F_GCR_SCON_MEMPROT_KEYSZ;
+        } else {
+            MXC_GCR->scon &= ~(MXC_F_GCR_SCON_MEMPROT_KEYSZ);
+        }
+    } else {
+        /* Disable memory protection */
+        MXC_GCR->scon &= ~MXC_F_GCR_SCON_MEMPROT_EN;
+    }
+
+    if(*options & OPTIONS_ENC) {
         // Setup the AES
 
         /* Enable CRYPTO clock */
@@ -117,7 +132,7 @@ void algo_write(uint8_t *work_start, uint8_t *work_end, uint32_t len, uint32_t a
 
     while(len) {
 
-        if((options & OPTIONS_128) == 0) {
+        if((*options & OPTIONS_128) == 0) {
 
             // Save the current address before we read from the working area
             addr_save = addr;
@@ -138,6 +153,9 @@ void algo_write(uint8_t *work_start, uint8_t *work_end, uint32_t len, uint32_t a
 
             // Unlock the flash
             MXC_FLC->cn = (MXC_FLC->cn & ~MXC_F_FLC_CN_UNLOCK) | MXC_S_FLC_CN_UNLOCK_UNLOCKED;
+
+            // 32-bit write
+            MXC_FLC->cn |= MXC_F_FLC_CN_WDTH;
 
             MXC_FLC->addr = addr_save;
             MXC_FLC->data[0] = enc_buffer[0];
@@ -199,11 +217,11 @@ void algo_write(uint8_t *work_start, uint8_t *work_end, uint32_t len, uint32_t a
                 enc_buffer[i] |= (temp8 << (24));
             }
 
-            if(options & OPTIONS_ENC) {
+            if(*options & OPTIONS_ENC) {
 
                 // XOR data with the address
                 for(i = 0; i < 4; i++) {
-                    if(options & OPTIONS_RELATIVE_XOR) {
+                    if(*options & OPTIONS_RELATIVE_XOR) {
                         enc_buffer[i] ^= ((addr_save & 0x00FFFFFF) + i*4);
                     } else {
                         enc_buffer[i] ^= (addr_save + i*4);
@@ -217,7 +235,7 @@ void algo_write(uint8_t *work_start, uint8_t *work_end, uint32_t len, uint32_t a
                 MXC_TPU->cipher_ctrl = ((0x0 << MXC_F_TPU_CIPHER_CTRL_MODE_POS) |
                     (0x0 << MXC_F_TPU_CIPHER_CTRL_ENC_POS));
 
-                if(options & OPTIONS_KEYSIZE) {
+                if(*options & OPTIONS_KEYSIZE) {
                     // ECB, AES-256, encrypt
                     MXC_TPU->cipher_ctrl |= (0x3 << MXC_F_TPU_CIPHER_CTRL_CIPHER_POS);
                 } else {
@@ -276,18 +294,6 @@ void algo_write(uint8_t *work_start, uint8_t *work_end, uint32_t len, uint32_t a
                 return;
                 #endif
             }
-        }
-    }
-
-    if(options & OPTIONS_ENC) {
-        /* Setup the memory protection */
-        MXC_GCR->scon |= MXC_F_GCR_SCON_MEMPROT_EN;
-
-        /* Set the keysize */
-        if(options & OPTIONS_KEYSIZE) {
-            MXC_GCR->scon |= MXC_F_GCR_SCON_MEMPROT_KEYSZ;
-        } else {
-            MXC_GCR->scon &= ~(MXC_F_GCR_SCON_MEMPROT_KEYSZ);
         }
     }
        
