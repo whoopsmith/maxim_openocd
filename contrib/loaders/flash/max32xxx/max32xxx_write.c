@@ -151,9 +151,6 @@ void algo_write(uint8_t *work_start, uint8_t *work_end, uint32_t len, uint32_t a
                 enc_buffer[0] |= (temp8 << (i*8));
             }
 
-            // Unlock the flash
-            MXC_FLC->cn = (MXC_FLC->cn & ~MXC_F_FLC_CN_UNLOCK) | MXC_S_FLC_CN_UNLOCK_UNLOCKED;
-
             // 32-bit write
             MXC_FLC->cn |= MXC_F_FLC_CN_WDTH;
 
@@ -166,9 +163,6 @@ void algo_write(uint8_t *work_start, uint8_t *work_end, uint32_t len, uint32_t a
             // Wait for the operation to complete
             while(MXC_FLC->cn & MXC_F_FLC_CN_WR) {}
 
-            /* Lock flash */
-            MXC_FLC->cn &= ~MXC_F_FLC_CN_UNLOCK;
-            
             /* Check access violations */
             if (MXC_FLC->intr & MXC_F_FLC_INTR_AF) {
                 MXC_FLC->intr &= ~MXC_F_FLC_INTR_AF;
@@ -263,9 +257,6 @@ void algo_write(uint8_t *work_start, uint8_t *work_end, uint32_t len, uint32_t a
                 enc_buffer[3] = MXC_TPU->dout[3];
             }
 
-            // Unlock the flash
-            MXC_FLC->cn = (MXC_FLC->cn & ~MXC_F_FLC_CN_UNLOCK) | MXC_S_FLC_CN_UNLOCK_UNLOCKED;
-
             // 128-bit write
             MXC_FLC->cn &= ~MXC_F_FLC_CN_WDTH;
 
@@ -280,9 +271,6 @@ void algo_write(uint8_t *work_start, uint8_t *work_end, uint32_t len, uint32_t a
 
             // Wait for the operation to complete
             while(MXC_FLC->cn & MXC_F_FLC_CN_WR) {}
-
-            /* Lock flash */
-            MXC_FLC->cn &= ~MXC_F_FLC_CN_UNLOCK;
             
             /* Check access violations */
             if (MXC_FLC->intr & MXC_F_FLC_INTR_AF) {
