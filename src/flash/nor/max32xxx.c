@@ -397,10 +397,6 @@ static int max32xxx_write_block(struct flash_bank *bank, const uint8_t *buffer,
 	/* power of two, and multiple of word size */
 	static const unsigned buf_min = 128;
 
-	/* for small buffers it's faster not to download an algorithm */
-	if (wcount * 4 < buf_min)
-		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
-
 	LOG_DEBUG("(bank=%p buffer=%p offset=%08" PRIx32 " wcount=%08" PRIx32 "",
 		bank, buffer, offset, wcount);
 
@@ -518,13 +514,19 @@ static int max32xxx_write(struct flash_bank *bank, const uint8_t *buffer,
 
 		/* 128-bit align the words_remaining */
 		words_remaining = remaining / 4;
-		words_remaining -= words_remaining % 4;
+
+		/* Algorithm will pad with 0xFF */
+		// words_remaining -= words_remaining % 4;
 
 		retval = max32xxx_write_block(bank, buffer, offset, words_remaining);
 		if (retval != ERROR_OK) {
-			if (retval == ERROR_TARGET_RESOURCE_NOT_AVAILABLE)
+			if (retval == ERROR_TARGET_RESOURCE_NOT_AVAILABLE) {
+				if(info->options & OPTIONS_ENC) {
+					LOG_ERROR("Must use algorithm in working area for encryption");
+					return ERROR_FLASH_OPERATION_FAILED;
+				}
 				LOG_DEBUG("writing flash word-at-a-time");
-			else {
+			} else {
 				max32xxx_flash_op_post(bank);
 				return ERROR_FLASH_OPERATION_FAILED;
 			}
