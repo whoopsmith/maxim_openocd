@@ -509,11 +509,12 @@ static int max32xxx_write(struct flash_bank *bank, const uint8_t *buffer,
 		return retval;
 	}
 
-	if (remaining >= 4) {
+	if (remaining >= 16) {
 		/* try using a block write */
 
 		/* 128-bit align the words_remaining */
-		words_remaining = remaining / 4;
+		words_remaining = remaining / 16;
+		words_remaining *= 4;
 
 		/* Algorithm will pad with 0xFF */
 		// words_remaining -= words_remaining % 4;
@@ -643,6 +644,7 @@ static int max32xxx_write(struct flash_bank *bank, const uint8_t *buffer,
 			return ERROR_FAIL;
 		}
 
+		target_read_u32(target, info->flc_base + FLC_CN, &flash_cn);
 		flash_cn &= ~(FLC_CN_32BIT);
 		target_write_u32(target, info->flc_base + FLC_CN, flash_cn);
 
