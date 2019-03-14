@@ -382,7 +382,7 @@ static int max32xxx_protect(struct flash_bank *bank, int set, int first, int las
 }
 
 static int max32xxx_write_block(struct flash_bank *bank, const uint8_t *buffer,
-	uint32_t offset, uint32_t wcount)
+	uint32_t offset, uint32_t len)
 {
 	struct max32xxx_flash_bank *info = bank->driver_priv;
 	struct target *target = bank->target;
@@ -397,8 +397,8 @@ static int max32xxx_write_block(struct flash_bank *bank, const uint8_t *buffer,
 	/* power of two, and multiple of word size */
 	static const unsigned buf_min = 128;
 
-	LOG_DEBUG("(bank=%p buffer=%p offset=%08" PRIx32 " wcount=%08" PRIx32 "",
-		bank, buffer, offset, wcount);
+	LOG_DEBUG("(bank=%p buffer=%p offset=%08" PRIx32 " len=%08" PRIx32 "",
+		bank, buffer, offset, len);
 
 	/* flash write code */
 	if (target_alloc_working_area(target, sizeof(write_code), &write_algorithm) != ERROR_OK) {
@@ -407,8 +407,8 @@ static int max32xxx_write_block(struct flash_bank *bank, const uint8_t *buffer,
 	}
 
 	/* plus a buffer big enough for this data */
-	if (wcount * 4 < buffer_size)
-		buffer_size = wcount * 4;
+	if (len < buffer_size)
+		buffer_size = len;
 
 	/* memory buffer */
 	while (target_alloc_working_area_try(target, buffer_size, &source) != ERROR_OK) {
@@ -436,7 +436,7 @@ static int max32xxx_write_block(struct flash_bank *bank, const uint8_t *buffer,
 
 	buf_set_u32(reg_params[0].value, 0, 32, source->address);
 	buf_set_u32(reg_params[1].value, 0, 32, source->address + source->size);
-	buf_set_u32(reg_params[2].value, 0, 32, wcount*4);
+	buf_set_u32(reg_params[2].value, 0, 32, len);
 	buf_set_u32(reg_params[3].value, 0, 32, address);
 	buf_set_u32(reg_params[4].value, 0, 32, source->address + source->size);
 
@@ -447,7 +447,7 @@ static int max32xxx_write_block(struct flash_bank *bank, const uint8_t *buffer,
 	buf_set_u32(mem_param[1].value, 0, 32, info->flc_base);
 
 	/* leave room for stack, 32-bit options and encryption buffer */
-	retval = target_run_flash_async_algorithm(target, buffer, wcount*4, 1, 2, mem_param,
+	retval = target_run_flash_async_algorithm(target, buffer, len, 1, 2, mem_param,
 		5, reg_params, source->address, (source->size - 8 - 256), write_algorithm->address, 0, &armv7m_info);
 
 	if (retval == ERROR_FLASH_OPERATION_FAILED)
@@ -471,7 +471,6 @@ static int max32xxx_write(struct flash_bank *bank, const uint8_t *buffer,
 	uint32_t flash_cn, flash_int;
 	uint32_t address = offset;
 	uint32_t remaining = count;
-	uint32_t words_remaining;
 	int retval;
 	int retry;
 
@@ -512,14 +511,7 @@ static int max32xxx_write(struct flash_bank *bank, const uint8_t *buffer,
 	if (remaining >= 16) {
 		/* try using a block write */
 
-		/* 128-bit align the words_remaining */
-		words_remaining = remaining / 16;
-		words_remaining *= 4;
-
-		/* Algorithm will pad with 0xFF */
-		// words_remaining -= words_remaining % 4;
-
-		retval = max32xxx_write_block(bank, buffer, offset, words_remaining);
+		retval = max32xxx_write_block(bank, buffer, offset, remaining);
 		if (retval != ERROR_OK) {
 			if (retval == ERROR_TARGET_RESOURCE_NOT_AVAILABLE) {
 				if(info->options & OPTIONS_ENC) {
@@ -533,9 +525,9 @@ static int max32xxx_write(struct flash_bank *bank, const uint8_t *buffer,
 			}
 		} else {
 			/* all words_remaining have been written */
-			buffer += words_remaining * 4;
-			address += words_remaining * 4;
-			remaining -= words_remaining * 4;
+			buffer += remaining;
+			address += remaining;
+			remaining -= remaining;
 		}
 	}
 
