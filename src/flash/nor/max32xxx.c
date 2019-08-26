@@ -389,7 +389,6 @@ static int max32xxx_write_block(struct flash_bank *bank, const uint8_t *buffer,
 	uint32_t buffer_size = 16384;
 	struct working_area *source;
 	struct working_area *write_algorithm;
-	uint32_t address = bank->base + offset;
 	struct reg_param reg_params[5];
 	struct mem_param mem_param[2];
 	struct armv7m_algorithm armv7m_info;
@@ -397,7 +396,7 @@ static int max32xxx_write_block(struct flash_bank *bank, const uint8_t *buffer,
 	/* power of two, and multiple of word size */
 	static const unsigned buf_min = 128;
 
-	LOG_DEBUG("(bank=%p buffer=%p offset=%08" PRIx32 " len=%08" PRIx32 "",
+	LOG_DEBUG("max32xxx_write_block bank=%p buffer=%p offset=%08" PRIx32 " len=%08" PRIx32 "",
 		bank, buffer, offset, len);
 
 	/* flash write code */
@@ -437,7 +436,7 @@ static int max32xxx_write_block(struct flash_bank *bank, const uint8_t *buffer,
 	buf_set_u32(reg_params[0].value, 0, 32, source->address);
 	buf_set_u32(reg_params[1].value, 0, 32, source->address + source->size);
 	buf_set_u32(reg_params[2].value, 0, 32, len);
-	buf_set_u32(reg_params[3].value, 0, 32, address);
+	buf_set_u32(reg_params[3].value, 0, 32, offset);
 	buf_set_u32(reg_params[4].value, 0, 32, source->address + source->size);
 
 	/* mem_params for options */
@@ -479,7 +478,7 @@ static int max32xxx_write(struct flash_bank *bank, const uint8_t *buffer,
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
-	LOG_DEBUG("bank=%p buffer=%p offset=%08" PRIx32 " count=%08" PRIx32 "",
+	LOG_DEBUG("max32xxx_write bank=%p buffer=%p offset=%08" PRIx32 " count=%08" PRIx32 "",
 		bank, buffer, offset, count);
 
 	if (info->probed == 0)
